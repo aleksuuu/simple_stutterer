@@ -1,0 +1,133 @@
+{
+	"patcher" : 	{
+		"fileversion" : 1,
+		"appversion" : 		{
+			"major" : 8,
+			"minor" : 6,
+			"revision" : 0,
+			"architecture" : "x64",
+			"modernui" : 1
+		}
+,
+		"classnamespace" : "dsp.gen",
+		"rect" : [ 247.0, 122.0, 1026.0, 784.0 ],
+		"bglocked" : 0,
+		"openinpresentation" : 0,
+		"default_fontsize" : 12.0,
+		"default_fontface" : 0,
+		"default_fontname" : "Arial",
+		"gridonopen" : 1,
+		"gridsize" : [ 15.0, 15.0 ],
+		"gridsnaponopen" : 1,
+		"objectsnaponopen" : 1,
+		"statusbarvisible" : 2,
+		"toolbarvisible" : 1,
+		"lefttoolbarpinned" : 0,
+		"toptoolbarpinned" : 0,
+		"righttoolbarpinned" : 0,
+		"bottomtoolbarpinned" : 0,
+		"toolbars_unpinned_last_save" : 0,
+		"tallnewobj" : 0,
+		"boxanimatetime" : 200,
+		"enablehscroll" : 1,
+		"enablevscroll" : 1,
+		"devicewidth" : 0.0,
+		"description" : "",
+		"digest" : "",
+		"tags" : "",
+		"style" : "",
+		"subpatcher_template" : "",
+		"assistshowspatchername" : 0,
+		"boxes" : [ 			{
+				"box" : 				{
+					"id" : "obj-8",
+					"maxclass" : "newobj",
+					"numinlets" : 0,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 677.0, 33.0, 119.0, 22.0 ],
+					"text" : "in 2 @comment hold"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"fontname" : "Lato",
+					"fontsize" : 12.0,
+					"id" : "obj-10",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 136.166663999999997, 703.0, 37.0, 23.0 ],
+					"text" : "out 2"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"fontname" : "Lato",
+					"fontsize" : 12.0,
+					"id" : "obj-3",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 28.0, 703.0, 37.0, 23.0 ],
+					"text" : "out 1"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"fontname" : "Lato",
+					"fontsize" : 12.0,
+					"id" : "obj-2",
+					"maxclass" : "newobj",
+					"numinlets" : 0,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 28.0, 33.0, 198.0, 23.0 ],
+					"text" : "in 1 @comment \"source to sample\""
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"code" : "/*\n    Modified from Waveset chopper / repeater by Graham Wakefield\n*/\n\n/*\n\tWaveset chopper / repeater\n\n\tThis program divides the input into segments, and plays these segments back.\n\tIt could be seen as a time-domain, granular form of analysis/resynthesis.\n\t\n\tThe program contains a recording section, \n\t\twhich stores grains into a Data object (segment_data)\n\tand a playback section,\n\t\twhich selects and plays these grains one-by-one\n\t\n\tThe grains are not enveloped; \n\t\tinstead the input is segmented at points where the signal is rising and crosses zero\n\t\t\n\tA positive zero-crossing means that: \n\t\ta: previous sample is less than zero\n\t\tb: next sample is greater than zero\n\t\n\tFor pure sounds a segment corresponds to one or more wavecycles, \n\t\tbut for complex sounds it can be somewhat stochastic.\n\t\n\tRECORDING:\n\t\t\n\tSince waveforms rarely cross zero at an exact sample location, \n\t\tthe actual crossing is somewhere between a and b.\n\t\tThe program estimates this sub-sample crossing phase (and stores it in offset_data)\n\t\tIt also stores the sub-sample accurate segment length (in length_data)\n\t\t\n\tThe segment_data recorded includes the sample just before the first crossing,\n\t\tand the sample just after the last, in order to contain both actual crossings.\n\t\tI.e. each captured segment looks like [a1, b1, ... b2 a2 ... a3, b3]\n\t\n\tWhen a segment finishes recording, a new segment is chosen to write into (write_chan)\n\t\n\tPLAYBACK:\n\t\n\tThe playback section is continuously playing a segment (play_chan)\n\t\t\n\tPlayback includes additional calculations,\n \t\tto ensure the sub-sample phase offset is used and retained between segments\n\n\tWhen the segment playback is done (possibly after several repeats),\n\t\ta new segment is selected according to the current strategy (play_mode)\n\t\t\n\t\t\n\tGraham Wakefield 2012\n*/\n\n\n// the segment storage (each segment on its own channel):\nData segment_data(10004, 1); // 10004\n\n// hold the current playback segment:\nParam hold(0, min=0, max=1);\n\nParam min_len(2500, min=1000, max=10000);\nParam max_len(4000, min=1000, max=10000);\nParam fade_len(300, min=10, max=500);\nParam gap_len(100, min=0, max=200);\n\n// the number of samples since the last capture:\nHistory write_index(10000);\n// the sample index of playback:\nHistory play_index(0);\n\nHistory prev_hold;\n\nHistory segment_len(10000);\n\noutput = in1;\n// record the next 2940 samps if hold state switches from false to true\nif (hold) {\n\tif (!prev_hold) {\n\t\twrite_index = 0;\n\t\tplay_index = 0;\n\t\tsegment_len = scale(noise(), -1, 1, min_len, max_len);\n\t}\n\tif (write_index < segment_len) {\n\t\tamp = 1;\n\t\tif (write_index < fade_len) {\n\t\t\tamp = write_index / fade_len;\n\t\t} else if (write_index > segment_len - fade_len - gap_len) {\n\t\t\tamp = clip((segment_len - write_index - 1) / fade_len, 0, 1);\n\t\t}\n\t\tpoke(segment_data, in1 * amp, write_index);\n\t\twrite_index += 1;\n\t} else {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = wrap(play_index + 1, 0, segment_len);\n\t}\n} else {\n\tif (play_index < segment_len - 1) {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = play_index + 1; // no wrap this time because of the if; this is to prevent clicks\n\t}\n}\n\nout1 = output;\nout2 = segment_len;\n\nprev_hold = hold;",
+					"fontface" : 0,
+					"fontname" : "<Monospaced>",
+					"fontsize" : 12.0,
+					"id" : "obj-1",
+					"maxclass" : "codebox",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"patching_rect" : [ 28.0, 67.0, 668.0, 626.0 ]
+				}
+
+			}
+ ],
+		"lines" : [ 			{
+				"patchline" : 				{
+					"destination" : [ "obj-10", 0 ],
+					"source" : [ "obj-1", 1 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-3", 0 ],
+					"source" : [ "obj-1", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-1", 0 ],
+					"source" : [ "obj-2", 0 ]
+				}
+
+			}
+ ]
+	}
+
+}

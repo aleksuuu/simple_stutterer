@@ -1,0 +1,286 @@
+/*
+    Modified from Waveset chopper / repeater by Graham Wakefield
+*/
+
+/*
+	Waveset chopper / repeater
+
+	This program divides the input into segments, and plays these segments back.
+	It could be seen as a time-domain, granular form of analysis/resynthesis.
+	
+	The program contains a recording section, 
+		which stores grains into a Data object (segment_data)
+	and a playback section,
+		which selects and plays these grains one-by-one
+	
+	The grains are not enveloped; 
+		instead the input is segmented at points where the signal is rising and crosses zero
+		
+	A positive zero-crossing means that: 
+		a: previous sample is less than zero
+		b: next sample is greater than zero
+	
+	For pure sounds a segment corresponds to one or more wavecycles, 
+		but for complex sounds it can be somewhat stochastic.
+	
+	RECORDING:
+		
+	Since waveforms rarely cross zero at an exact sample location, 
+		the actual crossing is somewhere between a and b.
+		The program estimates this sub-sample crossing phase (and stores it in offset_data)
+		It also stores the sub-sample accurate segment length (in length_data)
+		
+	The segment_data recorded includes the sample just before the first crossing,
+		and the sample just after the last, in order to contain both actual crossings.
+		I.e. each captured segment looks like [a1, b1, ... b2 a2 ... a3, b3]
+	
+	When a segment finishes recording, a new segment is chosen to write into (write_segment)
+	
+	PLAYBACK:
+	
+	The playback section is continuously playing a segment (play_segment)
+		
+	Playback includes additional calculations,
+ 		to ensure the sub-sample phase offset is used and retained between segments
+
+	When the segment playback is done (possibly after several repeats),
+		a new segment is selected according to the current strategy (play_mode)
+		
+		
+	Graham Wakefield 2012
+*/
+
+
+// the segment storage (each segment on its own channel):
+Data segment_data(10004, 64); // 10004
+// the length of each segment (in samples):
+Data length_data(64, 1);
+// each segment is also offset slightly (sub-sample phase delay):
+Data offset_data(64, 1);
+// each segment also stores its average energy (root-mean square):
+Data rms_data(64, 1);
+
+// set to zero to disable new segment capture:
+Param capture(1, min=0, max=1);
+// how many zero crossings per segment:
+Param crossings(1, min=1);
+// the minimum & maximum length of a segment:
+Param max_length(6300, min=16, max=10000); // 7 times per second
+Param min_length(2450, min=16, max=10000); // 18 times per second
+// how many times a segment is played back:
+Param repeats(1, min=1);
+// hold the current playback segment:
+Param hold(0, min=0, max=1);
+// playback rate for pitchedmode not enabled:
+Param rate(1, min=0);
+
+// the segment currently being written to:
+History write_segment(1);
+// the number of samples since the last capture:
+History write_index(0);
+// the number of rising zero-crossings since the last capture:
+History crossing_count(0);
+
+// the segment currently being played:
+History play_segment(0);
+// the sample index of playback:
+History play_index(0);
+// the length of the playing segment:
+History play_len(0);
+// the offset of the playing segment:
+History play_offset(0);
+// the loudness of the playing segment:
+History play_rms(0.1);
+// used to create smooth overlaps
+History prev_input;
+// used to accumulate the segment energy total:
+History energy_sum;
+
+// the total length of all segments
+History total_length;
+
+History end_reached_count(0);
+
+History prev_hold;
+
+History end_reached(1); // to make sure there's no click when hold is switched off
+
+
+// hold = in2;
+
+// the number of segments:
+num_segments = channels(segment_data);
+
+
+
+// RECORDING SECTION:
+
+// DC blocking filter used to remove bias in the input:
+unbiased_input = dcblock(in1); 
+// accumulate energy:
+energy_sum = energy_sum + unbiased_input*unbiased_input;
+
+// update write index:
+write_index = write_index + 1;
+// always write input into current segment:
+poke(segment_data, unbiased_input, write_index, write_segment);
+
+// detect rising zero-crossing: 
+is_crossing = change(unbiased_input > 0) > 0;
+// capture behavior is triggered on the rising zero-crossing:
+if (is_crossing) {
+	
+	// if the segment is too long, 
+	if (write_index > max_length) {
+		// reset the counters		
+		crossing_count = 0;
+		write_index = 0;
+		
+	} else {
+		// count rising zero-crossings in this segment:
+		crossing_count = crossing_count + 1;
+			
+		// decide whether the segment is complete:
+		// only when capture is enabled
+		// only when enough zero-crossings have occurred
+		// only when enough samples have elapsed
+		// only when not too many samples have elapsed
+		is_complete = (capture 
+			&& crossing_count >= crossings
+			&& write_index >= min_length);
+		if (is_complete) {	
+			
+			// at what theoretical sample index did it cross?
+			// estimate as linear intersection:
+			offset = prev_input / (prev_input - unbiased_input);
+			
+			// compare the previous offset:
+			prev_offset = peek(offset_data, write_segment, 0);
+			
+			// store segment length:
+			// adjusted for the fractional component
+			// minus one for the extra wrapping sample (a,b,...b,a,...,a,b)
+			len = write_index + offset - prev_offset - 1;
+			// update total length:
+			prev_length = peek(length_data, write_segment, 0);
+			total_length = total_length - prev_length + len;
+			// store new length:
+			poke(length_data, len, write_segment, 0);
+			
+			// store segment energy:
+			// (root mean square, over number of samples measured)
+			rms = sqrt(energy_sum / floor(len));
+			poke(rms_data, rms, write_segment, 0);
+			
+			// reset counters:
+			crossing_count = 0;
+			energy_sum = 0;
+			
+			// switch to a new segment:
+			write_segment = wrap(write_segment + 1, 0, num_segments);
+			// don't write into what is currently playing:
+			if (write_segment == play_segment) {
+				write_segment = wrap(write_segment + 1, 0, num_segments);
+			}
+			
+			// store the new offset:
+			poke(offset_data, offset, write_segment, 0);
+			
+			// write the previous & current (a,b) into the new segment:
+			poke(segment_data, prev_input, 0, write_segment);
+			poke(segment_data, unbiased_input, 1, write_segment);
+			write_index = 1;
+		} 
+	}
+}
+
+// remember previous input:
+prev_input = unbiased_input;
+
+// update playback index:
+play_index = play_index + rate;
+// actual play index needs to stay within len:
+// (can be fun to use wrap, fold or clip here)
+actual_play_index = wrap(play_index, 0, play_len);
+
+// play the current segment waveform:
+// (offset by the waveform zero-crossing position)
+
+
+fade_ramp = 0; // 0 = only input, 1 = input + stuttered
+actual_hold = hold;
+
+
+
+if (hold) {
+    actual_hold = 1;
+} else {
+    if (prev_hold) {
+        end_reached = 0;
+    }
+    if (!end_reached && actual_play_index + 1 < play_len) {
+        actual_hold = 1;
+		end_reached_count += 1;
+    } else {
+        end_reached = 1;
+        actual_hold = 0;
+    }
+}
+
+if (actual_hold) {
+    out1 = in1 + peek(segment_data, play_offset + actual_play_index, play_segment, interp="linear");
+} else {
+    out1 = in1;
+}
+
+// if (hold) {
+//     actual_hold = 1;
+//     out1 = in1 + peek(segment_data, play_offset + actual_play_index, play_segment, interp="linear");
+// } else {
+//     // if (prev_hold) {
+//     //     fade_ramp = 1;
+//     // }
+//     // if (fade_ramp > 0) {
+//     //     actual_hold = 1; // hold it a bit longer to fade out
+//     //     fade_ramp = fade_ramp - 0.1;
+//     //     fade_ramp = clip(fade_ramp, 0, 1);
+//     //     out1 = in1 + peek(segment_data, play_offset + actual_play_index, play_segment, interp="linear") * fade_ramp;
+//     // }
+//     // else {
+//     //     actual_hold = 0;
+//     //     out1 = in1;
+//     // }
+    
+// }
+
+
+// switch to a new segment?
+if (play_index >= play_len * floor(repeats)) {	
+	if (!actual_hold) {
+        // reset to the current actual play position
+        play_index = actual_play_index;
+        // play in forward sequence
+        play_segment = wrap(play_segment + 1, 0, num_segments);
+        // caveat: don't play what is currently being written:
+        if (write_segment == play_segment) {
+            play_segment = wrap(write_segment + 1, 0, num_segments);
+        }		
+	}
+    // get the new playback length
+    play_len = peek(length_data, play_segment, 0);
+    // get the new playback offset
+    play_offset = peek(offset_data, play_segment, 0);
+    // and the new playback loudness
+    play_rms = peek(rms_data, play_segment, 0);
+}	
+
+prev_hold = hold;
+
+// show what's actually happening:
+out2 = write_segment;
+out3 = play_segment;
+out4 = play_len;
+out5 = actual_play_index / play_len;
+out6 = play_rms;
+out7 = total_length;
+out8 = end_reached_count;
