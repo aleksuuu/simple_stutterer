@@ -45,3 +45,6 @@ Temporary Items
 
 # Pro Tools files
 WaveCache.wfm
+
+# Stutterer specific (this file is to make programming in gen easier; it's the same as the one in codebox)
+stutter.genexpr
