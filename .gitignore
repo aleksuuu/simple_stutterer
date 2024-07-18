@@ -46,5 +46,12 @@ Temporary Items
 # Pro Tools files
 WaveCache.wfm
 
-# Stutterer specific (this file is to make programming in gen easier; it's the same as the one in codebox)
-stutter.genexpr
+# Stutterer specific 
+# These files are to make programming in gen easier; they are the same as the ones in codebox)
+*.genexpr
+
+# These are daisy generated files
+gen_dsp/*
+*.cpp
+*.h
+*.json
