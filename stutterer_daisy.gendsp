@@ -10,7 +10,7 @@
 		}
 ,
 		"classnamespace" : "dsp.gen",
-		"rect" : [ 59.0, 106.0, 1201.0, 697.0 ],
+		"rect" : [ 59.0, 106.0, 1278.0, 699.0 ],
 		"bglocked" : 0,
 		"openinpresentation" : 0,
 		"default_fontsize" : 12.0,
@@ -40,7 +40,7 @@
 		"assistshowspatchername" : 0,
 		"boxes" : [ 			{
 				"box" : 				{
-					"code" : "/*\n    Modified from Waveset chopper / repeater by Graham Wakefield (2012)\n*/\n\n// the segment storage (each segment on its own channel):\nData segment_data(10004, 1); // 10004\n\nParam midi_cc64; // 0–1.\n\n// hold the current playback segment:\n// Param hold(0, min=0, max=1);\n\nParam min_len(2500, min=1000, max=10000);\nParam max_len(4000, min=1000, max=10000);\nParam fade_len(300, min=10, max=500);\nParam gap_len(100, min=0, max=200);\n\n// the number of samples since the last capture:\nHistory write_index(10000);\n// the sample index of playback:\nHistory play_index(0);\n\nHistory prev_hold;\n\nHistory segment_len(10000);\n\nhold = (midi_cc64 > 0);\noutput = in1;\n// record the next 2940 samps if hold state switches from false to true\nif (hold) {\n\tif (!prev_hold) {\n\t\twrite_index = 0;\n\t\tplay_index = 0;\n\t\tsegment_len = scale(noise(), -1, 1, min_len, max_len);\n\t}\n\tif (write_index < segment_len) {\n\t\tamp = 1;\n\t\tif (write_index < fade_len) {\n\t\t\tamp = write_index / fade_len;\n\t\t} else if (write_index > segment_len - fade_len - gap_len) {\n\t\t\tamp = clip((segment_len - write_index - 1) / fade_len, 0, 1);\n\t\t}\n\t\tpoke(segment_data, in1 * amp, write_index);\n\t\twrite_index += 1;\n\t} else {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = wrap(play_index + 1, 0, segment_len);\n\t}\n} else {\n\tif (play_index < segment_len - 1) {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = play_index + 1; // no wrap this time because of the if; this is to prevent clicks\n\t}\n}\n\nout1 = output;\n\nprev_hold = hold;",
+					"code" : "/*\n    Modified from Waveset chopper / repeater by Graham Wakefield (2012)\n*/\n\n// the segment storage (each segment on its own channel):\nData segment_data(10004, 1); // 10004\n\n//Param midi_cc64(0, min=0, max=1); // 0–1.\r\n\r\nParam sw1(0, min=0, max=1);\n\n// hold the current playback segment:\n// Param hold(0, min=0, max=1);\n\nParam min_len(2500, min=1000, max=10000);\nParam max_len(4000, min=1000, max=10000);\nParam fade_len(300, min=10, max=500);\nParam gap_len(100, min=0, max=200);\n\n// the number of samples since the last capture:\nHistory write_index(10000);\n// the sample index of playback:\nHistory play_index(0);\n\nHistory prev_hold;\n\nHistory segment_len(10000);\n\nhold = sw1;\noutput = in1;\n// record the next 2940 samps if hold state switches from false to true\nif (hold) {\n\tif (!prev_hold) {\n\t\twrite_index = 0;\n\t\tplay_index = 0;\n\t\tsegment_len = scale(noise(), -1, 1, min_len, max_len);\n\t}\n\tif (write_index < segment_len) {\n\t\tamp = 1;\n\t\tif (write_index < fade_len) {\n\t\t\tamp = write_index / fade_len;\n\t\t} else if (write_index > segment_len - fade_len - gap_len) {\n\t\t\tamp = clip((segment_len - write_index - 1) / fade_len, 0, 1);\n\t\t}\n\t\tpoke(segment_data, in1 * amp, write_index);\n\t\twrite_index += 1;\n\t} else {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = wrap(play_index + 1, 0, segment_len);\n\t}\n} else {\n\tif (play_index < segment_len - 1) {\n\t\toutput += peek(segment_data, play_index);\n\t\tplay_index = play_index + 1; // no wrap this time because of the if; this is to prevent clicks\n\t}\n}\n\nout1 = output;\r\n//out1 = hold;\n\nprev_hold = hold;",
 					"fontface" : 0,
 					"fontname" : "<Monospaced>",
 					"fontsize" : 12.0,
@@ -49,7 +49,7 @@
 					"numinlets" : 1,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ],
-					"patching_rect" : [ 50.0, 58.0, 934.0, 496.0 ]
+					"patching_rect" : [ 50.0, 58.0, 1024.0, 531.0 ]
 				}
 
 			}
